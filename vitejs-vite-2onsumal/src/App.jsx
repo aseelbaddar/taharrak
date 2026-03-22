@@ -216,6 +216,8 @@ export default function CoachApp() {
                             <div style={{ display: "flex", gap: 8 }}>
                               <div style={s.prescField}><label style={s.prescLabel}>Sets</label><input style={s.prescInput} type="number" min="1" value={exItem.sets} onChange={e => updateExInDay(wi, di, ei, "sets", e.target.value)} /></div>
                               <div style={s.prescField}><label style={s.prescLabel}>Reps</label><input style={s.prescInput} type="text" value={exItem.reps} onChange={e => updateExInDay(wi, di, ei, "reps", e.target.value)} /></div>
+                              <div style={s.prescField}><label style={s.prescLabel}>Weight (kg)</label><input style={s.prescInput} type="text" placeholder="e.g. 20 or 15-20" value={exItem.weight || ""} onChange={e => updateExInDay(wi, di, ei, "weight", e.target.value)} /></div>
+                              <div style={s.prescField}><label style={s.prescLabel}>Hold (sec)</label><input style={s.prescInput} type="text" placeholder="e.g. 30" value={exItem.hold || ""} onChange={e => updateExInDay(wi, di, ei, "hold", e.target.value)} /></div>
                               <div style={s.prescField}><label style={s.prescLabel}>Rest (s)</label><input style={s.prescInput} type="number" min="0" value={exItem.rest} onChange={e => updateExInDay(wi, di, ei, "rest", e.target.value)} /></div>
                             </div>
                             <textarea style={s.noteInput} placeholder="Coach note for client (optional)..." value={exItem.note || ""} onChange={e => updateExInDay(wi, di, ei, "note", e.target.value)} />
