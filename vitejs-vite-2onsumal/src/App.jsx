@@ -20,68 +20,52 @@ export default function CoachApp() {
   const [exercises, setExercises] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [clients, setClients] = useState([]);
+  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState("");
-
-  // Exercise form
   const [newEx, setNewEx] = useState({ name: "", video_url: "", category: "Pull", description: "" });
-
-  // Program form
+  const [editingExId, setEditingExId] = useState(null);
   const [progForm, setProgForm] = useState({ name: "", weeks: [makeWeek(1)] });
   const [editingProgId, setEditingProgId] = useState(null);
   const [filterCat, setFilterCat] = useState({});
   const [expandedWeeks, setExpandedWeeks] = useState({ 0: true });
-
-  // Client form
   const [addClientModal, setAddClientModal] = useState(false);
   const [newClient, setNewClient] = useState({ name: "", username: "", password: "" });
   const [assignModal, setAssignModal] = useState(null);
   const [selectedProg, setSelectedProg] = useState("");
+  const [selectedClientId, setSelectedClientId] = useState(null);
 
   const notify = (msg) => { setNotification(msg); setTimeout(() => setNotification(""), 3000); };
-
-  useEffect(() => { if (authed) { loadExercises(); loadPrograms(); loadClients(); } }, [authed]);
-
+  useEffect(() => { if (authed) loadAll(); }, [authed]);
+  const loadAll = async () => { await Promise.all([loadExercises(), loadPrograms(), loadClients(), loadLogs()]); };
   const loadExercises = async () => { const { data } = await sb.from("exercises").select("*").order("name"); setExercises(data || []); };
   const loadPrograms = async () => { const { data } = await sb.from("programs").select("*").order("created_at"); setPrograms(data || []); };
   const loadClients = async () => { const { data } = await sb.from("clients").select("*").order("name"); setClients(data || []); };
+  const loadLogs = async () => { const { data } = await sb.from("logs").select("*").order("created_at", { ascending: false }); setLogs(data || []); };
 
-  // ── Exercise helpers ──
   const saveExercise = async () => {
     if (!newEx.name.trim()) return;
     setLoading(true);
-    await sb.from("exercises").insert({ name: newEx.name, video_url: newEx.video_url, category: newEx.category, description: newEx.description });
+    if (editingExId) {
+      await sb.from("exercises").update({ name: newEx.name, video_url: newEx.video_url, category: newEx.category, description: newEx.description }).eq("id", editingExId);
+      setEditingExId(null); notify("Exercise updated!");
+    } else {
+      await sb.from("exercises").insert({ name: newEx.name, video_url: newEx.video_url, category: newEx.category, description: newEx.description });
+      notify("Exercise added!");
+    }
     setNewEx({ name: "", video_url: "", category: "Pull", description: "" });
-    await loadExercises();
-    setLoading(false);
-    notify("Exercise added!");
+    await loadExercises(); setLoading(false);
   };
+  const startEditEx = (ex) => { setEditingExId(ex.id); setNewEx({ name: ex.name, video_url: ex.video_url || "", category: ex.category || "Pull", description: ex.description || "" }); window.scrollTo({ top: 0, behavior: "smooth" }); notify("Editing exercise."); };
+  const cancelEditEx = () => { setEditingExId(null); setNewEx({ name: "", video_url: "", category: "Pull", description: "" }); };
+  const deleteExercise = async (id) => { await sb.from("exercises").delete().eq("id", id); await loadExercises(); notify("Exercise removed."); };
 
-  const deleteExercise = async (id) => {
-    await sb.from("exercises").delete().eq("id", id);
-    await loadExercises();
-    notify("Exercise removed.");
-  };
-
-  // ── Program helpers ──
-  const updateExInDay = (wi, di, ei, field, value) => {
-    const weeks = progForm.weeks.map((w, wIdx) => wIdx !== wi ? w : { ...w, days: w.days.map((d, dIdx) => dIdx !== di ? d : { ...d, exercises: d.exercises.map((ex, eIdx) => eIdx !== ei ? ex : { ...ex, [field]: value }) }) });
-    setProgForm({ ...progForm, weeks });
-  };
-  const addExToDay = (wi, di, exId) => {
-    const weeks = progForm.weeks.map((w, wIdx) => wIdx !== wi ? w : { ...w, days: w.days.map((d, dIdx) => dIdx !== di ? d : { ...d, exercises: d.exercises.find(e => e.id === exId) ? d.exercises : [...d.exercises, { id: exId, sets: "3", reps: "10", rest: "60", note: "" }] }) });
-    setProgForm({ ...progForm, weeks });
-  };
-  const removeExFromDay = (wi, di, ei) => {
-    const weeks = progForm.weeks.map((w, wIdx) => wIdx !== wi ? w : { ...w, days: w.days.map((d, dIdx) => dIdx !== di ? d : { ...d, exercises: d.exercises.filter((_, j) => j !== ei) }) });
-    setProgForm({ ...progForm, weeks });
-  };
+  const updateExInDay = (wi, di, ei, field, value) => { const weeks = progForm.weeks.map((w, wIdx) => wIdx !== wi ? w : { ...w, days: w.days.map((d, dIdx) => dIdx !== di ? d : { ...d, exercises: d.exercises.map((ex, eIdx) => eIdx !== ei ? ex : { ...ex, [field]: value }) }) }); setProgForm({ ...progForm, weeks }); };
+  const addExToDay = (wi, di, exId) => { const weeks = progForm.weeks.map((w, wIdx) => wIdx !== wi ? w : { ...w, days: w.days.map((d, dIdx) => dIdx !== di ? d : { ...d, exercises: d.exercises.find(e => e.id === exId) ? d.exercises : [...d.exercises, { id: exId, sets: "3", reps: "10", rest: "60", note: "" }] }) }); setProgForm({ ...progForm, weeks }); };
+  const removeExFromDay = (wi, di, ei) => { const weeks = progForm.weeks.map((w, wIdx) => wIdx !== wi ? w : { ...w, days: w.days.map((d, dIdx) => dIdx !== di ? d : { ...d, exercises: d.exercises.filter((_, j) => j !== ei) }) }); setProgForm({ ...progForm, weeks }); };
   const addDay = (wi) => { const weeks = progForm.weeks.map((w, i) => i !== wi ? w : { ...w, days: [...w.days, makeDay(`Day ${w.days.length + 1}`)] }); setProgForm({ ...progForm, weeks }); };
   const removeDay = (wi, di) => { const weeks = progForm.weeks.map((w, i) => i !== wi ? w : { ...w, days: w.days.filter((_, j) => j !== di) }); setProgForm({ ...progForm, weeks }); };
-  const duplicateDay = (wi, di) => {
-    const weeks = progForm.weeks.map((w, i) => { if (i !== wi) return w; const orig = w.days[di]; const copy = { ...orig, id: generateId(), label: orig.label + " (Copy)", exercises: orig.exercises.map(e => ({ ...e })) }; const days = [...w.days.slice(0, di + 1), copy, ...w.days.slice(di + 1)]; return { ...w, days }; });
-    setProgForm({ ...progForm, weeks });
-  };
+  const duplicateDay = (wi, di) => { const weeks = progForm.weeks.map((w, i) => { if (i !== wi) return w; const orig = w.days[di]; const copy = { ...orig, id: generateId(), label: orig.label + " (Copy)", exercises: orig.exercises.map(e => ({ ...e })) }; const days = [...w.days.slice(0, di + 1), copy, ...w.days.slice(di + 1)]; return { ...w, days }; }); setProgForm({ ...progForm, weeks }); };
   const moveDay = (wi, di, dir) => { const weeks = progForm.weeks.map((w, i) => { if (i !== wi) return w; const days = [...w.days]; const t = di + dir; if (t < 0 || t >= days.length) return w; [days[di], days[t]] = [days[t], days[di]]; return { ...w, days }; }); setProgForm({ ...progForm, weeks }); };
   const addWeek = () => { const n = progForm.weeks.length + 1; setProgForm({ ...progForm, weeks: [...progForm.weeks, makeWeek(n)] }); setExpandedWeeks(prev => ({ ...prev, [n - 1]: true })); };
   const removeWeek = (wi) => { setProgForm({ ...progForm, weeks: progForm.weeks.filter((_, i) => i !== wi) }); };
@@ -89,63 +73,24 @@ export default function CoachApp() {
   const moveWeek = (wi, dir) => { const weeks = [...progForm.weeks]; const t = wi + dir; if (t < 0 || t >= weeks.length) return; [weeks[wi], weeks[t]] = [weeks[t], weeks[wi]]; setProgForm({ ...progForm, weeks }); };
 
   const saveProgram = async () => {
-    if (!progForm.name.trim()) return;
-    setLoading(true);
-    if (editingProgId) {
-      await sb.from("programs").update({ name: progForm.name, weeks: progForm.weeks }).eq("id", editingProgId);
-      setEditingProgId(null);
-      notify("Program updated!");
-    } else {
-      await sb.from("programs").insert({ name: progForm.name, weeks: progForm.weeks });
-      notify("Program created!");
-    }
-    setProgForm({ name: "", weeks: [makeWeek(1)] });
-    await loadPrograms();
-    setLoading(false);
+    if (!progForm.name.trim()) return; setLoading(true);
+    if (editingProgId) { await sb.from("programs").update({ name: progForm.name, weeks: progForm.weeks }).eq("id", editingProgId); setEditingProgId(null); notify("Program updated!"); }
+    else { await sb.from("programs").insert({ name: progForm.name, weeks: progForm.weeks }); notify("Program created!"); }
+    setProgForm({ name: "", weeks: [makeWeek(1)] }); await loadPrograms(); setLoading(false);
   };
+  const startEditProg = (prog) => { setEditingProgId(prog.id); setProgForm({ name: prog.name, weeks: prog.weeks }); setActiveTab("programs"); window.scrollTo({ top: 0, behavior: "smooth" }); notify("Editing — save when done."); };
+  const cancelEditProg = () => { setEditingProgId(null); setProgForm({ name: "", weeks: [makeWeek(1)] }); };
+  const duplicateProgram = async (prog) => { await sb.from("programs").insert({ name: prog.name + " (Copy)", weeks: prog.weeks }); await loadPrograms(); notify("Program duplicated!"); };
+  const deleteProgram = async (id) => { await sb.from("programs").delete().eq("id", id); if (editingProgId === id) cancelEditProg(); await loadPrograms(); notify("Program deleted."); };
 
-  const startEdit = (prog) => { setEditingProgId(prog.id); setProgForm({ name: prog.name, weeks: prog.weeks }); setActiveTab("programs"); window.scrollTo({ top: 0, behavior: "smooth" }); notify("Editing — save when done."); };
-  const cancelEdit = () => { setEditingProgId(null); setProgForm({ name: "", weeks: [makeWeek(1)] }); };
-
-  const duplicateProgram = async (prog) => {
-    await sb.from("programs").insert({ name: prog.name + " (Copy)", weeks: prog.weeks });
-    await loadPrograms();
-    notify("Program duplicated!");
-  };
-
-  const deleteProgram = async (id) => {
-    await sb.from("programs").delete().eq("id", id);
-    if (editingProgId === id) cancelEdit();
-    await loadPrograms();
-    notify("Program deleted.");
-  };
-
-  // ── Client helpers ──
   const saveClient = async () => {
-    if (!newClient.name || !newClient.username || !newClient.password) return;
-    setLoading(true);
+    if (!newClient.name || !newClient.username || !newClient.password) return; setLoading(true);
     await sb.from("clients").insert({ name: newClient.name, username: newClient.username, password: newClient.password, current_day_index: 0, completed_days: [] });
-    setNewClient({ name: "", username: "", password: "" });
-    setAddClientModal(false);
-    await loadClients();
-    setLoading(false);
-    notify("Client added!");
+    setNewClient({ name: "", username: "", password: "" }); setAddClientModal(false); await loadClients(); setLoading(false); notify("Client added!");
   };
+  const assignProgram = async () => { await sb.from("clients").update({ assigned_program: selectedProg || null, current_day_index: 0, completed_days: [] }).eq("id", assignModal); setAssignModal(null); await loadClients(); notify("Program assigned!"); };
+  const deleteClient = async (id) => { await sb.from("clients").delete().eq("id", id); await loadClients(); notify("Client removed."); };
 
-  const assignProgram = async () => {
-    await sb.from("clients").update({ assigned_program: selectedProg || null, current_day_index: 0, completed_days: [] }).eq("id", assignModal);
-    setAssignModal(null);
-    await loadClients();
-    notify("Program assigned!");
-  };
-
-  const deleteClient = async (id) => {
-    await sb.from("clients").delete().eq("id", id);
-    await loadClients();
-    notify("Client removed.");
-  };
-
-  // ── LOGIN ──
   if (!authed) {
     return (
       <div style={s.root}>
@@ -153,9 +98,7 @@ export default function CoachApp() {
           <div style={s.logo}><span style={s.logoAr}>تحرك</span><span style={s.logoEn}>TAHARRAK — COACH</span></div>
           <div style={s.form}>
             <p style={s.loginLabel}>Coach Password</p>
-            <input style={s.input} type="password" placeholder="Enter password" value={passInput}
-              onChange={e => setPassInput(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { passInput === COACH_PASS ? (setAuthed(true), setPassError("")) : setPassError("Wrong password"); } }} />
+            <input style={s.input} type="password" placeholder="Enter password" value={passInput} onChange={e => setPassInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { passInput === COACH_PASS ? (setAuthed(true), setPassError("")) : setPassError("Wrong password"); } }} />
             {passError && <p style={s.error}>{passError}</p>}
             <button style={s.btn} onClick={() => { passInput === COACH_PASS ? (setAuthed(true), setPassError("")) : setPassError("Wrong password"); }}>Enter</button>
           </div>
@@ -164,105 +107,103 @@ export default function CoachApp() {
     );
   }
 
+  const selClient = clients.find(c => c.id === selectedClientId);
+  const selClientLogs = logs.filter(l => l.client_id === selectedClientId);
+  const selClientProg = programs.find(p => p.id === selClient?.assigned_program);
+
   return (
     <div style={s.root}>
       {notification && <div style={s.notification}>{notification}</div>}
       <div style={s.header}>
-        <div><div style={s.logo2}>تحرك <span style={{ fontSize: 12, color: "#1fe5ff" }}>COACH DASHBOARD</span></div></div>
+        <div><div style={s.logo2}>تحرك <span style={{ fontSize: 11, color: "#1fe5ff" }}>COACH</span></div></div>
         <button style={s.logoutBtn} onClick={() => setAuthed(false)}>Logout</button>
       </div>
-
       <div style={s.tabRow}>
-        {["exercises", "programs", "clients"].map(t => (
-          <button key={t} style={activeTab === t ? s.tabActive : s.tabInactive} onClick={() => { setActiveTab(t); if (t !== "programs") cancelEdit(); }}>
-            {t === "exercises" ? "Exercises" : t === "programs" ? "Programs" : "Clients"}
+        {["exercises", "programs", "clients", "progress"].map(t => (
+          <button key={t} style={activeTab === t ? s.tabActive : s.tabInactive} onClick={() => { setActiveTab(t); if (t !== "programs") cancelEditProg(); if (t !== "progress") setSelectedClientId(null); }}>
+            {t === "exercises" ? "Exercises" : t === "programs" ? "Programs" : t === "clients" ? "Clients" : "Progress"}
           </button>
         ))}
       </div>
 
       <div style={s.content}>
 
-        {/* ── EXERCISES ── */}
         {activeTab === "exercises" && (
           <>
             <h2 style={s.sectionTitle}>Exercise Library</h2>
-            <div style={s.card}>
-              <p style={s.formLabel}>Add Exercise</p>
+            <div style={{ ...s.card, border: editingExId ? "1px solid #1fe5ff" : "1px solid #363d52" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <p style={{ ...s.formLabel, margin: 0 }}>{editingExId ? "Editing Exercise" : "Add Exercise"}</p>
+                {editingExId && <button style={s.removeBtn} onClick={cancelEditEx}>Cancel</button>}
+              </div>
               <input style={s.input} placeholder="Exercise name" value={newEx.name} onChange={e => setNewEx({ ...newEx, name: e.target.value })} />
               <input style={s.input} placeholder="YouTube URL" value={newEx.video_url} onChange={e => setNewEx({ ...newEx, video_url: e.target.value })} />
               <input style={s.input} placeholder="Description (optional)" value={newEx.description} onChange={e => setNewEx({ ...newEx, description: e.target.value })} />
               <select style={s.input} value={newEx.category} onChange={e => setNewEx({ ...newEx, category: e.target.value })}>
                 {CATEGORIES.map(c => <option key={c}>{c}</option>)}
               </select>
-              <button style={s.btn} onClick={saveExercise} disabled={loading}>Add Exercise</button>
+              <button style={s.btn} onClick={saveExercise} disabled={loading}>{editingExId ? "Update Exercise" : "Add Exercise"}</button>
             </div>
-            {exercises.length === 0 && <div style={s.empty}>No exercises yet. Add your first one!</div>}
+            {exercises.length === 0 && <div style={s.empty}>No exercises yet.</div>}
             {exercises.map(ex => (
-              <div key={ex.id} style={s.card}>
+              <div key={ex.id} style={{ ...s.card, border: editingExId === ex.id ? "1px solid #1fe5ff" : "1px solid #363d52" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div>
+                  <div style={{ flex: 1 }}>
                     <div style={s.exName}>{ex.name}</div>
                     <div style={s.exCat}>{ex.category}</div>
                     {ex.description && <div style={{ color: "#e0e0e0", fontSize: 12, marginTop: 4 }}>{ex.description}</div>}
                     {ex.video_url && <a href={ex.video_url} target="_blank" rel="noreferrer" style={s.videoLink}>Watch Video</a>}
                   </div>
-                  <button style={s.removeBtn} onClick={() => deleteExercise(ex.id)}>Remove</button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button style={s.editBtn} onClick={() => startEditEx(ex)}>Edit</button>
+                    <button style={s.removeBtn} onClick={() => deleteExercise(ex.id)}>Remove</button>
+                  </div>
                 </div>
               </div>
             ))}
           </>
         )}
 
-        {/* ── PROGRAMS ── */}
         {activeTab === "programs" && (
           <>
             <h2 style={s.sectionTitle}>Programs</h2>
             <div style={{ ...s.card, border: editingProgId ? "1px solid #1fe5ff" : "1px solid #363d52" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <p style={{ ...s.formLabel, margin: 0 }}>{editingProgId ? "✏️ Editing Program" : "Create Program"}</p>
-                {editingProgId && <button style={s.removeBtn} onClick={cancelEdit}>✕ Cancel</button>}
+                <p style={{ ...s.formLabel, margin: 0 }}>{editingProgId ? "Editing Program" : "Create Program"}</p>
+                {editingProgId && <button style={s.removeBtn} onClick={cancelEditProg}>Cancel</button>}
               </div>
               <input style={s.input} placeholder="Program name" value={progForm.name} onChange={e => setProgForm({ ...progForm, name: e.target.value })} />
-
               {progForm.weeks.map((week, wi) => (
                 <div key={week.id} style={s.weekBlock}>
                   <div style={s.weekHeader}>
                     <button style={s.weekToggle} onClick={() => setExpandedWeeks(p => ({ ...p, [wi]: !p[wi] }))}>{expandedWeeks[wi] ? "▾" : "▸"}</button>
-                    <input style={{ ...s.input, margin: 0, flex: 1, fontWeight: 700 }} value={week.label}
-                      onChange={e => { const weeks = progForm.weeks.map((w, i) => i === wi ? { ...w, label: e.target.value } : w); setProgForm({ ...progForm, weeks }); }} />
+                    <input style={{ ...s.input, margin: 0, flex: 1, fontWeight: 700 }} value={week.label} onChange={e => { const weeks = progForm.weeks.map((w, i) => i === wi ? { ...w, label: e.target.value } : w); setProgForm({ ...progForm, weeks }); }} />
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       <button style={s.orderBtn} onClick={() => moveWeek(wi, -1)} disabled={wi === 0}>▲</button>
                       <button style={s.orderBtn} onClick={() => moveWeek(wi, 1)} disabled={wi === progForm.weeks.length - 1}>▼</button>
-                      <button style={s.dupeBtn} onClick={() => duplicateWeek(wi)}>⧉ Week</button>
+                      <button style={s.dupeBtn} onClick={() => duplicateWeek(wi)}>⧉</button>
                       <button style={s.addDayBtn} onClick={() => addDay(wi)}>+ Day</button>
                       {progForm.weeks.length > 1 && <button style={s.removeBtn} onClick={() => removeWeek(wi)}>✕</button>}
                     </div>
                   </div>
-
                   {expandedWeeks[wi] && week.days.map((day, di) => (
                     <div key={day.id} style={s.dayBlock}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <input style={{ ...s.input, margin: 0, flex: 1, marginRight: 8 }} value={day.label}
-                          onChange={e => { const weeks = progForm.weeks.map((w, i) => i !== wi ? w : { ...w, days: w.days.map((d, j) => j === di ? { ...d, label: e.target.value } : d) }); setProgForm({ ...progForm, weeks }); }} />
+                        <input style={{ ...s.input, margin: 0, flex: 1, marginRight: 8 }} value={day.label} onChange={e => { const weeks = progForm.weeks.map((w, i) => i !== wi ? w : { ...w, days: w.days.map((d, j) => j === di ? { ...d, label: e.target.value } : d) }); setProgForm({ ...progForm, weeks }); }} />
                         <div style={{ display: "flex", gap: 4 }}>
                           <button style={s.orderBtn} onClick={() => moveDay(wi, di, -1)} disabled={di === 0}>▲</button>
                           <button style={s.orderBtn} onClick={() => moveDay(wi, di, 1)} disabled={di === week.days.length - 1}>▼</button>
-                          <button style={s.dupeBtn} onClick={() => duplicateDay(wi, di)}>⧉ Day</button>
+                          <button style={s.dupeBtn} onClick={() => duplicateDay(wi, di)}>⧉</button>
                           {week.days.length > 1 && <button style={s.removeBtn} onClick={() => removeDay(wi, di)}>✕</button>}
                         </div>
                       </div>
-
                       <div style={{ display: "flex", gap: 4, marginBottom: 6, flexWrap: "wrap" }}>
                         {["All", ...CATEGORIES].map(cat => { const fk = `${wi}-${di}`; const active = (filterCat[fk] || "All") === cat; return <button key={cat} style={active ? s.catBtnActive : s.catBtn} onClick={() => setFilterCat({ ...filterCat, [fk]: cat })}>{cat}</button>; })}
                       </div>
-
                       <select style={s.input} value="" onChange={e => { if (e.target.value) addExToDay(wi, di, e.target.value); }}>
                         <option value="">+ Add exercise to {day.label}</option>
-                        {exercises.filter(ex => { const fc = filterCat[`${wi}-${di}`] || "All"; return fc === "All" || ex.category === fc; }).map(ex => (
-                          <option key={ex.id} value={ex.id}>{ex.name} ({ex.category})</option>
-                        ))}
+                        {exercises.filter(ex => { const fc = filterCat[`${wi}-${di}`] || "All"; return fc === "All" || ex.category === fc; }).map(ex => (<option key={ex.id} value={ex.id}>{ex.name} ({ex.category})</option>))}
                       </select>
-
                       {day.exercises.length === 0 && <p style={{ color: "#a0a0a0", fontSize: 12 }}>No exercises added</p>}
                       {day.exercises.map((exItem, ei) => {
                         const ex = exercises.find(e => e.id === exItem.id);
@@ -285,11 +226,9 @@ export default function CoachApp() {
                   ))}
                 </div>
               ))}
-
               <button style={{ ...s.btn, background: "#333a4d", color: "#fff", marginBottom: 10 }} onClick={addWeek}>+ Add Week</button>
               <button style={s.btn} onClick={saveProgram} disabled={loading}>{editingProgId ? "Update Program" : "Save Program"}</button>
             </div>
-
             {programs.length === 0 && <div style={s.empty}>No programs yet.</div>}
             {programs.map(prog => (
               <div key={prog.id} style={{ ...s.card, border: editingProgId === prog.id ? "1px solid #1fe5ff" : "1px solid #363d52" }}>
@@ -299,8 +238,8 @@ export default function CoachApp() {
                     <div style={{ color: "#e0e0e0", fontSize: 12, marginTop: 2 }}>{prog.weeks?.length || 0} week(s) · {flattenDays(prog.weeks || []).length} total days</div>
                   </div>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                    <button style={s.editBtn} onClick={() => startEdit(prog)}>✏️ Edit</button>
-                    <button style={s.dupeBtn} onClick={() => duplicateProgram(prog)}>⧉ Copy</button>
+                    <button style={s.editBtn} onClick={() => startEditProg(prog)}>Edit</button>
+                    <button style={s.dupeBtn} onClick={() => duplicateProgram(prog)}>Copy</button>
                     <button style={s.removeBtn} onClick={() => deleteProgram(prog.id)}>Delete</button>
                   </div>
                 </div>
@@ -312,7 +251,6 @@ export default function CoachApp() {
           </>
         )}
 
-        {/* ── CLIENTS ── */}
         {activeTab === "clients" && (
           <>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -330,31 +268,94 @@ export default function CoachApp() {
                     <div>
                       <div style={s.exName}>{client.name}</div>
                       <div style={{ color: "#e0e0e0", fontSize: 12 }}>@{client.username}</div>
-                      <div style={{ color: prog ? "#1fe5ff" : "#a0a0a0", fontSize: 12, marginTop: 2 }}>
-                        {prog ? `${prog.name} — Day ${currentIdx + 1} of ${totalDays}` : "No program assigned"}
-                      </div>
+                      <div style={{ color: prog ? "#1fe5ff" : "#a0a0a0", fontSize: 12, marginTop: 2 }}>{prog ? `${prog.name} — Day ${currentIdx + 1} of ${totalDays}` : "No program assigned"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
                       <button style={s.assignBtn} onClick={() => { setAssignModal(client.id); setSelectedProg(client.assigned_program || ""); }}>Assign</button>
                       <button style={s.removeBtn} onClick={() => deleteClient(client.id)}>Remove</button>
                     </div>
                   </div>
-                  {prog && (
-                    <div style={{ marginTop: 8 }}>
-                      <div style={{ ...s.progressTrack, marginTop: 4 }}>
-                        <div style={{ ...s.progressFill, width: `${totalDays ? (currentIdx / totalDays) * 100 : 0}%` }} />
-                      </div>
-                      <div style={{ color: "#a0a0a0", fontSize: 11, marginTop: 4 }}>{currentIdx} of {totalDays} days completed</div>
-                    </div>
-                  )}
+                  {prog && (<div style={{ marginTop: 8 }}><div style={s.progressTrack}><div style={{ ...s.progressFill, width: `${totalDays ? (currentIdx / totalDays) * 100 : 0}%` }} /></div><div style={{ color: "#a0a0a0", fontSize: 11, marginTop: 4 }}>{currentIdx} of {totalDays} days completed</div></div>)}
                 </div>
               );
             })}
           </>
         )}
+
+        {activeTab === "progress" && (
+          <>
+            <h2 style={s.sectionTitle}>Client Progress</h2>
+            {!selectedClientId ? (
+              <>
+                {clients.length === 0 && <div style={s.empty}>No clients yet.</div>}
+                {clients.map(client => {
+                  const prog = programs.find(p => p.id === client.assigned_program);
+                  const totalDays = flattenDays(prog?.weeks || []).length;
+                  const currentIdx = client.current_day_index || 0;
+                  const clientLogs = logs.filter(l => l.client_id === client.id);
+                  const pct = totalDays ? Math.round((currentIdx / totalDays) * 100) : 0;
+                  return (
+                    <div key={client.id} style={{ ...s.card, cursor: "pointer" }} onClick={() => setSelectedClientId(client.id)}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <div style={s.exName}>{client.name}</div>
+                          <div style={{ color: "#e0e0e0", fontSize: 12, marginTop: 2 }}>{prog ? prog.name : "No program"}</div>
+                          <div style={{ color: "#a0a0a0", fontSize: 11, marginTop: 2 }}>{clientLogs.length} logs · {(client.completed_days || []).length} days done</div>
+                        </div>
+                        <div style={{ textAlign: "center" }}>
+                          <div style={s.progressRing}><span style={{ color: "#1fe5ff", fontWeight: 900, fontSize: 12 }}>{pct}%</span></div>
+                          <div style={{ color: "#a0a0a0", fontSize: 10, marginTop: 4 }}>Day {currentIdx + 1}/{totalDays || "—"}</div>
+                        </div>
+                      </div>
+                      {prog && <div style={{ marginTop: 8 }}><div style={s.progressTrack}><div style={{ ...s.progressFill, width: `${pct}%` }} /></div></div>}
+                      <div style={{ color: "#a0a0a0", fontSize: 11, marginTop: 6 }}>Tap to view logs →</div>
+                    </div>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                <button style={{ ...s.removeBtn, marginBottom: 14 }} onClick={() => setSelectedClientId(null)}>← Back</button>
+                {selClient && (
+                  <>
+                    <div style={s.card}>
+                      <div style={s.exName}>{selClient.name}</div>
+                      <div style={{ color: "#e0e0e0", fontSize: 12 }}>@{selClient.username}</div>
+                      {selClientProg && (
+                        <>
+                          <div style={{ color: "#1fe5ff", fontSize: 13, marginTop: 6 }}>{selClientProg.name}</div>
+                          <div style={{ color: "#a0a0a0", fontSize: 12, marginTop: 2 }}>Day {(selClient.current_day_index || 0) + 1} of {flattenDays(selClientProg.weeks || []).length}</div>
+                          <div style={{ marginTop: 8 }}><div style={s.progressTrack}><div style={{ ...s.progressFill, width: `${flattenDays(selClientProg.weeks || []).length ? Math.round(((selClient.current_day_index || 0) / flattenDays(selClientProg.weeks || []).length) * 100) : 0}%` }} /></div></div>
+                        </>
+                      )}
+                      <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <div style={s.weekSummaryBadge}>{selClientLogs.length} total logs</div>
+                        <div style={s.weekSummaryBadge}>{(selClient.completed_days || []).length} days completed</div>
+                      </div>
+                    </div>
+                    <h3 style={{ color: "#fff", fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Workout Logs</h3>
+                    {selClientLogs.length === 0 ? <div style={s.empty}>No logs yet.</div> : selClientLogs.map((log, i) => {
+                      const ex = exercises.find(e => e.id === log.exercise_id);
+                      return (
+                        <div key={i} style={s.card}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                            <div style={s.exName}>{ex?.name || "Exercise"}</div>
+                            <div style={{ color: "#a0a0a0", fontSize: 12 }}>{log.log_date}</div>
+                          </div>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                            {log.sets?.map((set, si) => <div key={si} style={s.weekSummaryBadge}>Set {si + 1}: {set.reps} reps</div>)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Assign Modal */}
       {assignModal && (
         <div style={s.modalBg}>
           <div style={s.modal}>
@@ -371,7 +372,6 @@ export default function CoachApp() {
         </div>
       )}
 
-      {/* Add Client Modal */}
       {addClientModal && (
         <div style={s.modalBg}>
           <div style={s.modal}>
@@ -397,19 +397,19 @@ const s = {
   logoAr: { display: "block", fontSize: 44, fontWeight: 900, color: "#1fe5ff", letterSpacing: 2, lineHeight: 1 },
   logoEn: { display: "block", fontSize: 11, letterSpacing: 6, color: "#a0a0a0", marginTop: 4 },
   logo2: { fontSize: 20, fontWeight: 900, color: "#1fe5ff" },
-  tabRow: { display: "flex", gap: 6, padding: "12px 16px", borderBottom: "1px solid #333a4d", background: "#232736" },
-  tabActive: { background: "#1fe5ff", color: "#2a2e3c", border: "none", borderRadius: 6, padding: "8px 18px", fontWeight: 700, cursor: "pointer", fontSize: 13 },
-  tabInactive: { background: "#333a4d", color: "#e0e0e0", border: "none", borderRadius: 6, padding: "8px 18px", fontWeight: 600, cursor: "pointer", fontSize: 13 },
+  tabRow: { display: "flex", gap: 4, padding: "10px 12px", borderBottom: "1px solid #333a4d", background: "#232736", flexWrap: "wrap" },
+  tabActive: { background: "#1fe5ff", color: "#2a2e3c", border: "none", borderRadius: 6, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 12 },
+  tabInactive: { background: "#333a4d", color: "#e0e0e0", border: "none", borderRadius: 6, padding: "8px 14px", fontWeight: 600, cursor: "pointer", fontSize: 12 },
   form: { display: "flex", flexDirection: "column", gap: 12 },
   input: { background: "#232736", border: "1px solid #3d4560", borderRadius: 8, color: "#fff", padding: "10px 14px", fontSize: 14, width: "100%", boxSizing: "border-box", marginBottom: 8, outline: "none" },
   btn: { background: "#1fe5ff", color: "#2a2e3c", border: "none", borderRadius: 8, padding: "11px 20px", fontWeight: 800, cursor: "pointer", fontSize: 14, width: "100%" },
   loginLabel: { color: "#fff", fontSize: 13, margin: "0 0 4px" },
   error: { color: "#ef4444", fontSize: 13, margin: 0 },
-  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "16px 20px", borderBottom: "1px solid #333a4d", background: "#232736" },
+  header: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", borderBottom: "1px solid #333a4d", background: "#232736" },
   logoutBtn: { background: "#333a4d", color: "#e0e0e0", border: "none", borderRadius: 6, padding: "7px 14px", cursor: "pointer", fontSize: 13 },
-  content: { maxWidth: 720, margin: "0 auto", padding: "20px 16px" },
+  content: { maxWidth: 720, margin: "0 auto", padding: "16px 14px" },
   sectionTitle: { color: "#fff", fontSize: 20, fontWeight: 800, marginBottom: 16, marginTop: 0 },
-  card: { background: "#232736", border: "1px solid #363d52", borderRadius: 12, padding: 16, marginBottom: 12 },
+  card: { background: "#232736", border: "1px solid #363d52", borderRadius: 12, padding: 14, marginBottom: 12 },
   exName: { color: "#fff", fontWeight: 700, fontSize: 15 },
   exCat: { color: "#1fe5ff", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginTop: 2 },
   videoLink: { color: "#60a5fa", fontSize: 12, textDecoration: "none", display: "inline-block", marginTop: 4 },
@@ -422,9 +422,8 @@ const s = {
   modal: { background: "#2a2e3c", border: "1px solid #3d4560", borderRadius: 14, padding: 24, width: "100%", maxWidth: 380 },
   empty: { color: "#a0a0a0", textAlign: "center", padding: "40px 20px", fontSize: 15, lineHeight: 1.8 },
   notification: { position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#1fe5ff", color: "#2a2e3c", borderRadius: 8, padding: "10px 24px", fontWeight: 800, fontSize: 14, zIndex: 999, whiteSpace: "nowrap" },
-  setBadge: { background: "#333a4d", color: "#fff", borderRadius: 4, fontSize: 11, padding: "3px 8px", display: "inline-block" },
   weekBlock: { background: "#1e2232", border: "1px solid #3d4560", borderRadius: 10, marginBottom: 12, overflow: "hidden" },
-  weekHeader: { display: "flex", alignItems: "center", gap: 8, padding: 10, background: "#232736", borderBottom: "1px solid #3d4560", flexWrap: "wrap" },
+  weekHeader: { display: "flex", alignItems: "center", gap: 6, padding: 10, background: "#232736", borderBottom: "1px solid #3d4560", flexWrap: "wrap" },
   weekToggle: { background: "none", border: "none", color: "#1fe5ff", fontSize: 16, cursor: "pointer", fontWeight: 900, padding: "0 4px" },
   addDayBtn: { background: "#1a2535", color: "#1fe5ff", border: "1px solid #1fe5ff", borderRadius: 5, padding: "5px 10px", cursor: "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" },
   weekSummaryBadge: { background: "#333a4d", color: "#e0e0e0", borderRadius: 4, fontSize: 11, padding: "3px 8px", display: "inline-block" },
@@ -439,4 +438,5 @@ const s = {
   catBtnActive: { background: "#1fe5ff", color: "#2a2e3c", border: "1px solid #1fe5ff", borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   progressTrack: { background: "#333a4d", borderRadius: 99, height: 5, overflow: "hidden" },
   progressFill: { background: "#1fe5ff", height: "100%", borderRadius: 99 },
+  progressRing: { width: 44, height: 44, borderRadius: "50%", border: "3px solid #1fe5ff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 },
 };
