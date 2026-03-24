@@ -6,7 +6,7 @@ const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFz
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
 
 const COACH_PASS = "0000";
-const CATEGORIES = ["Pull", "Push", "Legs", "Core", "Mobility", "Rehab"];
+const CATEGORIES = ["Pull", "Push", "Legs", "Core", "Mobility", "Rehab", "Cardio", "Skills"];
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const makeDay = (label) => ({ id: generateId(), label, exercises: [] });
 const makeWeek = (n) => ({ id: generateId(), label: `Week ${n}`, days: [makeDay("Day 1"), makeDay("Day 2"), makeDay("Day 3")] });
@@ -25,6 +25,7 @@ export default function CoachApp() {
   const [notification, setNotification] = useState("");
   const [newEx, setNewEx] = useState({ name: "", video_url: "", category: "Pull", description: "" });
   const [editingExId, setEditingExId] = useState(null);
+  const [filterExCat, setFilterExCat] = useState("All");
   const [progForm, setProgForm] = useState({ name: "", weeks: [makeWeek(1)] });
   const [editingProgId, setEditingProgId] = useState(null);
   const [filterCat, setFilterCat] = useState({});
@@ -144,8 +145,19 @@ export default function CoachApp() {
               </select>
               <button style={s.btn} onClick={saveExercise} disabled={loading}>{editingExId ? "Update Exercise" : "Add Exercise"}</button>
             </div>
-            {exercises.length === 0 && <div style={s.empty}>No exercises yet.</div>}
-            {exercises.map(ex => (
+            {/* Category filter */}
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
+              {["All", ...CATEGORIES].map(cat => (
+                <button key={cat}
+                  style={filterExCat === cat ? s.catBtnActive : s.catBtn}
+                  onClick={() => setFilterExCat(cat)}>
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {exercises.filter(ex => filterExCat === "All" || ex.category === filterExCat).length === 0 && <div style={s.empty}>No exercises in this category yet.</div>}
+            {exercises.filter(ex => filterExCat === "All" || ex.category === filterExCat).map(ex => (
               <div key={ex.id} style={{ ...s.card, border: editingExId === ex.id ? "1px solid #1fe5ff" : "1px solid #363d52" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div style={{ flex: 1 }}>
