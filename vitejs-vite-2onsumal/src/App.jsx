@@ -12,6 +12,16 @@ const makeDay = (label) => ({ id: generateId(), label, exercises: [] });
 const makeWeek = (n) => ({ id: generateId(), label: `Week ${n}`, days: [makeDay("Day 1"), makeDay("Day 2"), makeDay("Day 3")] });
 const flattenDays = (weeks) => { const f = []; weeks?.forEach((w, wi) => w.days?.forEach((d, di) => f.push({ week: w, weekIndex: wi, day: d, dayIndex: di, globalIndex: f.length }))); return f; };
 
+const getVideoId = (url) => {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes("youtu.be")) return u.pathname.slice(1).split("?")[0];
+    if (u.hostname.includes("youtube.com")) return u.searchParams.get("v");
+  } catch {}
+  return null;
+};
+
 export default function CoachApp() {
   const [authed, setAuthed] = useState(false);
   const [passInput, setPassInput] = useState("");
@@ -26,6 +36,7 @@ export default function CoachApp() {
   const [newEx, setNewEx] = useState({ name: "", video_url: "", category: "Pull", description: "" });
   const [editingExId, setEditingExId] = useState(null);
   const [filterExCat, setFilterExCat] = useState("All");
+  const [dragItem, setDragItem] = useState(null); // { type: "week"|"day"|"exercise", wi, di, ei }
   const [progForm, setProgForm] = useState({ name: "", weeks: [makeWeek(1)] });
   const [editingProgId, setEditingProgId] = useState(null);
   const [filterCat, setFilterCat] = useState({});
@@ -43,6 +54,54 @@ export default function CoachApp() {
   const loadPrograms = async () => { const { data } = await sb.from("programs").select("*").order("created_at"); setPrograms(data || []); };
   const loadClients = async () => { const { data } = await sb.from("clients").select("*").order("name"); setClients(data || []); };
   const loadLogs = async () => { const { data } = await sb.from("logs").select("*").order("created_at", { ascending: false }); setLogs(data || []); };
+
+  // ── Drag helpers ──
+  const onDragStartWeek = (e, wi) => { setDragItem({ type: "week", wi }); e.dataTransfer.effectAllowed = "move"; };
+  const onDropWeek = (e, targetWi) => {
+    e.preventDefault();
+    if (!dragItem || dragItem.type !== "week" || dragItem.wi === targetWi) return;
+    const weeks = [...progForm.weeks];
+    const [moved] = weeks.splice(dragItem.wi, 1);
+    weeks.splice(targetWi, 0, moved);
+    setProgForm({ ...progForm, weeks });
+    setDragItem(null);
+  };
+  const onDragStartDay = (e, wi, di) => { setDragItem({ type: "day", wi, di }); e.dataTransfer.effectAllowed = "move"; };
+  const onDropDay = (e, targetWi, targetDi) => {
+    e.preventDefault();
+    if (!dragItem || dragItem.type !== "day") return;
+    const weeks = progForm.weeks.map((w, wIdx) => {
+      if (wIdx !== dragItem.wi && wIdx !== targetWi) return w;
+      if (dragItem.wi === targetWi) {
+        const days = [...w.days];
+        const [moved] = days.splice(dragItem.di, 1);
+        days.splice(targetDi, 0, moved);
+        return { ...w, days };
+      }
+      return w;
+    });
+    setProgForm({ ...progForm, weeks });
+    setDragItem(null);
+  };
+  const onDragStartEx = (e, wi, di, ei) => { setDragItem({ type: "exercise", wi, di, ei }); e.dataTransfer.effectAllowed = "move"; };
+  const onDropEx = (e, targetWi, targetDi, targetEi) => {
+    e.preventDefault();
+    if (!dragItem || dragItem.type !== "exercise") return;
+    if (dragItem.wi === targetWi && dragItem.di === targetDi) {
+      const weeks = progForm.weeks.map((w, wIdx) => {
+        if (wIdx !== targetWi) return w;
+        return { ...w, days: w.days.map((d, dIdx) => {
+          if (dIdx !== targetDi) return d;
+          const exs = [...d.exercises];
+          const [moved] = exs.splice(dragItem.ei, 1);
+          exs.splice(targetEi, 0, moved);
+          return { ...d, exercises: exs };
+        })};
+      });
+      setProgForm({ ...progForm, weeks });
+    }
+    setDragItem(null);
+  };
 
   const saveExercise = async () => {
     if (!newEx.name.trim()) return;
@@ -157,22 +216,43 @@ export default function CoachApp() {
             </div>
 
             {exercises.filter(ex => filterExCat === "All" || ex.category === filterExCat).length === 0 && <div style={s.empty}>No exercises in this category yet.</div>}
-            {exercises.filter(ex => filterExCat === "All" || ex.category === filterExCat).map(ex => (
-              <div key={ex.id} style={{ ...s.card, border: editingExId === ex.id ? "1px solid #1fe5ff" : "1px solid #363d52" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={s.exName}>{ex.name}</div>
-                    <div style={s.exCat}>{ex.category}</div>
-                    {ex.description && <div style={{ color: "#e0e0e0", fontSize: 12, marginTop: 4 }}>{ex.description}</div>}
-                    {ex.video_url && <a href={ex.video_url} target="_blank" rel="noreferrer" style={s.videoLink}>Watch Video</a>}
-                  </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button style={s.editBtn} onClick={() => startEditEx(ex)}>Edit</button>
-                    <button style={s.removeBtn} onClick={() => deleteExercise(ex.id)}>Remove</button>
+            {exercises.filter(ex => filterExCat === "All" || ex.category === filterExCat).map(ex => {
+              const vid = getVideoId(ex.video_url);
+              const thumb = vid ? `https://img.youtube.com/vi/${vid}/mqdefault.jpg` : null;
+              return (
+                <div key={ex.id} style={{ ...s.card, border: editingExId === ex.id ? "1px solid #1fe5ff" : "1px solid #363d52", padding: 0, overflow: "hidden" }}>
+                  <div style={{ display: "flex", gap: 0 }}>
+                    {/* Thumbnail */}
+                    {thumb ? (
+                      <a href={ex.video_url} target="_blank" rel="noreferrer" style={{ flexShrink: 0, display: "block", width: 110, height: 70, position: "relative", textDecoration: "none" }}>
+                        <img src={thumb} alt={ex.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                        <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <div style={{ width: 26, height: 26, background: "#1fe5ff", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", paddingLeft: 2 }}>
+                            <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="2,1 9,5 2,9" fill="#2a2e3c"/></svg>
+                          </div>
+                        </div>
+                      </a>
+                    ) : (
+                      <div style={{ flexShrink: 0, width: 110, height: 70, background: "#1e2232", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <span style={{ color: "#3d4560", fontSize: 22 }}>🎬</span>
+                      </div>
+                    )}
+                    {/* Info */}
+                    <div style={{ flex: 1, padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                      <div>
+                        <div style={s.exName}>{ex.name}</div>
+                        <div style={s.exCat}>{ex.category}</div>
+                        {ex.description && <div style={{ color: "#a0a0a0", fontSize: 11, marginTop: 3 }}>{ex.description}</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
+                        <button style={s.editBtn} onClick={() => startEditEx(ex)}>✏️</button>
+                        <button style={s.removeBtn} onClick={() => deleteExercise(ex.id)}>✕</button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </>
         )}
 
@@ -186,8 +266,13 @@ export default function CoachApp() {
               </div>
               <input style={s.input} placeholder="Program name" value={progForm.name} onChange={e => setProgForm({ ...progForm, name: e.target.value })} />
               {progForm.weeks.map((week, wi) => (
-                <div key={week.id} style={s.weekBlock}>
+                <div key={week.id} style={{ ...s.weekBlock, opacity: dragItem?.type === "week" && dragItem.wi === wi ? 0.5 : 1 }}
+                draggable
+                onDragStart={e => onDragStartWeek(e, wi)}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => onDropWeek(e, wi)}>
                   <div style={s.weekHeader}>
+                    <span style={s.dragHandle} title="Drag to reorder">⠿</span>
                     <button style={s.weekToggle} onClick={() => setExpandedWeeks(p => ({ ...p, [wi]: !p[wi] }))}>{expandedWeeks[wi] ? "▾" : "▸"}</button>
                     <input style={{ ...s.input, margin: 0, flex: 1, fontWeight: 700 }} value={week.label} onChange={e => { const weeks = progForm.weeks.map((w, i) => i === wi ? { ...w, label: e.target.value } : w); setProgForm({ ...progForm, weeks }); }} />
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
@@ -199,7 +284,11 @@ export default function CoachApp() {
                     </div>
                   </div>
                   {expandedWeeks[wi] && week.days.map((day, di) => (
-                    <div key={day.id} style={s.dayBlock}>
+                    <div key={day.id} style={{ ...s.dayBlock, opacity: dragItem?.type === "day" && dragItem.wi === wi && dragItem.di === di ? 0.5 : 1 }}
+                      draggable
+                      onDragStart={e => onDragStartDay(e, wi, di)}
+                      onDragOver={e => e.preventDefault()}
+                      onDrop={e => onDropDay(e, wi, di)}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                         <input style={{ ...s.input, margin: 0, flex: 1, marginRight: 8 }} value={day.label} onChange={e => { const weeks = progForm.weeks.map((w, i) => i !== wi ? w : { ...w, days: w.days.map((d, j) => j === di ? { ...d, label: e.target.value } : d) }); setProgForm({ ...progForm, weeks }); }} />
                         <div style={{ display: "flex", gap: 4 }}>
@@ -217,10 +306,15 @@ export default function CoachApp() {
                         {exercises.filter(ex => { const fc = filterCat[`${wi}-${di}`] || "All"; return fc === "All" || ex.category === fc; }).map(ex => (<option key={ex.id} value={ex.id}>{ex.name} ({ex.category})</option>))}
                       </select>
                       {day.exercises.length === 0 && <p style={{ color: "#a0a0a0", fontSize: 12 }}>No exercises added</p>}
-                      {day.exercises.map((exItem, ei) => {
+                      {day.exercises.map((exItem, ei) => { // eslint-disable-line
                         const ex = exercises.find(e => e.id === exItem.id);
                         return (
-                          <div key={ei} style={s.exPrescription}>
+                          <div key={ei} style={{ ...s.exPrescription, opacity: dragItem?.type === "exercise" && dragItem.wi === wi && dragItem.di === di && dragItem.ei === ei ? 0.4 : 1, cursor: "grab" }}
+                            draggable
+                            onDragStart={e => onDragStartEx(e, wi, di, ei)}
+                            onDragOver={e => e.preventDefault()}
+                            onDrop={e => onDropEx(e, wi, di, ei)}>
+                            <div style={s.dragHandle} title="Drag to reorder">⠿</div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                               <span style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{ex?.name || "Unknown"}</span>
                               <button style={{ ...s.removeBtn, color: "#ef4444" }} onClick={() => removeExFromDay(wi, di, ei)}>Remove</button>
@@ -465,6 +559,7 @@ const s = {
   prescLabel: { color: "#e0e0e0", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
   prescInput: { background: "#232736", border: "1px solid #3d4560", borderRadius: 6, color: "#fff", padding: "7px 10px", fontSize: 13, width: "100%", boxSizing: "border-box", outline: "none" },
   noteInput: { background: "#232736", border: "1px solid #3d4560", borderRadius: 6, color: "#fff", padding: "7px 10px", fontSize: 12, width: "100%", boxSizing: "border-box", outline: "none", marginTop: 8, resize: "vertical", minHeight: 44, fontFamily: "inherit" },
+  dragHandle: { color: "#3d4560", fontSize: 18, cursor: "grab", padding: "0 4px", userSelect: "none", flexShrink: 0 },
   orderBtn: { background: "#2a2e3c", color: "#1fe5ff", border: "1px solid #3d4560", borderRadius: 5, padding: "4px 8px", cursor: "pointer", fontSize: 12, fontWeight: 900 },
   catBtn: { background: "#333a4d", color: "#a0a0a0", border: "1px solid #3d4560", borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   catBtnActive: { background: "#1fe5ff", color: "#2a2e3c", border: "1px solid #1fe5ff", borderRadius: 20, padding: "4px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
