@@ -347,21 +347,39 @@ export default function CoachApp() {
                         <div style={s.weekSummaryBadge}>{(selClient.completed_days || []).length} days completed</div>
                       </div>
                     </div>
-                    <h3 style={{ color: "#fff", fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Workout Logs</h3>
-                    {selClientLogs.length === 0 ? <div style={s.empty}>No logs yet.</div> : selClientLogs.map((log, i) => {
-                      const ex = exercises.find(e => e.id === log.exercise_id);
-                      return (
-                        <div key={i} style={s.card}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={s.exName}>{ex?.name || "Exercise"}</div>
-                            <div style={{ color: "#a0a0a0", fontSize: 12 }}>{log.log_date}</div>
+                    <h3 style={{ color: "#fff", fontSize: 15, fontWeight: 700, marginBottom: 10 }}>History</h3>
+                    {selClientLogs.length === 0 ? <div style={s.empty}>No logs yet.</div> : (() => {
+                      const byDate = {};
+                      selClientLogs.forEach(log => { const d = log.log_date || "Unknown"; if (!byDate[d]) byDate[d] = []; byDate[d].push(log); });
+                      return Object.keys(byDate).sort((a,b) => new Date(b)-new Date(a)).map(date => {
+                        const dayLogs = byDate[date];
+                        const firstLog = dayLogs[0];
+                        const prog = programs.find(p => p.id === firstLog.program_id);
+                        const flatDay = prog ? flattenDays(prog.weeks).find(fd => fd.globalIndex === firstLog.global_day_index) : null;
+                        return (
+                          <div key={date} style={{ ...s.card, marginBottom: 14 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, paddingBottom: 8, borderBottom: "1px solid #333a4d" }}>
+                              <div>
+                                <div style={{ color: "#1fe5ff", fontWeight: 800, fontSize: 14 }}>{date}</div>
+                                {flatDay && <div style={{ color: "#a0a0a0", fontSize: 12, marginTop: 2 }}>{flatDay.week.label} · {flatDay.day.label}</div>}
+                              </div>
+                              <div style={{ background: "#1fe5ff22", color: "#1fe5ff", border: "1px solid #1fe5ff44", borderRadius: 20, fontSize: 11, fontWeight: 700, padding: "3px 10px" }}>{dayLogs.length} exercises</div>
+                            </div>
+                            {dayLogs.map((log, i) => {
+                              const ex = exercises.find(e => e.id === log.exercise_id);
+                              return (
+                                <div key={i} style={{ paddingBottom: 8, marginBottom: 8, borderBottom: "1px solid #2a2e3c" }}>
+                                  <div style={{ color: "#fff", fontWeight: 700, fontSize: 13 }}>{ex?.name || "Exercise"}</div>
+                                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", marginTop: 4 }}>
+                                    {log.sets?.map((set, si) => set.reps ? <div key={si} style={s.weekSummaryBadge}>Set {si+1}: {set.reps} reps{set.weight ? ` @ ${set.weight}kg` : ""}</div> : null)}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                            {log.sets?.map((set, si) => <div key={si} style={s.weekSummaryBadge}>Set {si + 1}: {set.reps} reps</div>)}
-                          </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      });
+                    })()}
                   </>
                 )}
               </>
